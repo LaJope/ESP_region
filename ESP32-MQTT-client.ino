@@ -12,16 +12,34 @@
 #include <MQTTClient.h>
 #include <ArduinoJson.h>
 
-#ifdef PRODUCER
-int current_state_CLK;
-int last_state_CLK;
+#include "LED.h"
 
-unsigned long last_press_update = 0;
-const unsigned long delay_between_presses = 400;
+#ifdef PRODUCER
+#include "RotaryEncoder.h"
+#include "Potentiometer.h"
+#include "Display.h"
+
+String modtype = "producer/";
+
+#ifdef ROTARY_ENCODER
+RotaryEncoder reader;
+#endif
+#ifdef POTENTIOMETER
+Potentiometer reader;
+#endif
+
+Display screen;
+double power = 0;
+
+void send_reading(int value) {
+  JsonDocument message;
+  message["value"] = value;
+  send_to_MQTT("esp/update", message);
+}
 #endif
 
 #ifdef CONSUMER
-#include "LED.h"
+String modtype = "consumer/";
 #endif
 
 const char WIFI_SSID[] = "DancingCow";
@@ -38,6 +56,7 @@ IPAddress ip;
 IPAddress broker_ip;
 
 String MAC_ADDRESS;
+LED led_control;
 
 void wifi_connect() {
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -58,30 +77,17 @@ void wifi_connect() {
   Serial.println(broker_ip);
 }
 
-#ifdef PRODUCER
-void setup_rotary_encoder_pins() {
-  pinMode(ROTARY_ENCODER_CLK, INPUT);
-  pinMode(ROTARY_ENCODER_DT, INPUT);
-  pinMode(ROTARY_ENCODER_SW, INPUT_PULLUP);
-  last_state_CLK = digitalRead(ROTARY_ENCODER_CLK);
-}
-#endif
-
-#ifdef CONSUMER
-LED led_control;
-#endif
-
 void setup() {
   Serial.begin(115200);
 
   wifi_connect();
 
 #ifdef PRODUCER
-  setup_rotary_encoder_pins();
+  reader.setup_pins();
+  screen.setup();
 #endif
-#ifdef CONSUMER
+
   led_control.setup_pins();
-#endif
 
   MAC_ADDRESS = read_MAC_address();
   connect_to_MQTT();
@@ -91,31 +97,20 @@ void setup() {
 void loop() {
   mqtt.loop();
 #ifdef PRODUCER
-  check_rotation();
-  check_press();
+  static int64_t lastupdate = millis();
+#ifdef ROTARY_ENCODER
+  reader.check_and_send();
+#endif
+  if (millis() - lastupdate > UPDATE_INTERVAL) {
+#ifdef POTENTIOMETER
+    reader.check_and_send();
+#endif
+    screen.draw(reader.percentage, power);
+    led_control.rotate_color(reader.percentage);
+    lastupdate = millis();
+  }
 #endif
 }
-
-#ifdef PRODUCER
-void check_rotation() {
-  current_state_CLK = digitalRead(ROTARY_ENCODER_CLK);
-  if (current_state_CLK != last_state_CLK) {
-    if (digitalRead(ROTARY_ENCODER_DT) != current_state_CLK)
-      send_reading(+1);
-    else
-      send_reading(-1);
-  }
-  last_state_CLK = current_state_CLK;
-}
-
-void check_press() {
-  if (millis() - last_press_update > delay_between_presses &&
-      digitalRead(ROTARY_ENCODER_SW) == LOW) {
-    last_press_update = millis();
-    send_reading(0);
-  }
-}
-#endif
 
 void connect_to_MQTT() {
   mqtt.begin(broker_ip.toString().c_str(), MQTT_PORT, network);
@@ -135,11 +130,11 @@ void connect_to_MQTT() {
     return;
   }
 
-  if (mqtt.subscribe(MAC_ADDRESS))
+  if (mqtt.subscribe(modtype + MAC_ADDRESS))
     Serial.print("Subscribed to the topic: ");
   else
     Serial.print("Failed to subscribe to the topic: ");
-  Serial.println(MAC_ADDRESS);
+  Serial.println(modtype + MAC_ADDRESS);
 
   Serial.println("ESP - MQTT broker Connected.");
 }
@@ -147,19 +142,21 @@ void connect_to_MQTT() {
 void message_handler(String &topic, String &payload) {
   JsonDocument input;
   deserializeJson(input, payload);
-  if (topic == MAC_ADDRESS) {
+  if (VERBOSE) {
     Serial.println("ESP " + MAC_ADDRESS + " - recieved control message:");
+    Serial.println(payload);
+  }
+#ifdef PRODUCER
+  if (topic == (modtype + MAC_ADDRESS))
+    power = double(input["power"]);
+#endif
 #ifdef CONSUMER
+  if (topic == (modtype + MAC_ADDRESS)) {
     int time = float(input["time"]) * 2;
     bool status = input["status"];
-    led_control.change_color(time, status);
-#endif
-    // bool power_status = input["power_status"];
-    // bool generation_status = input["generation_status"];
-    // Serial.printf("Power is %s\n", (power_status ? "ON" : "OFF"));
-    // Serial.printf("Electric plants are %s\n",
-    //               (generation_status ? "ON" : "OFF"));
+    led_control.rotate_color(time, status);
   }
+#endif
 }
 
 void send_to_MQTT(String topic, JsonDocument data) {
@@ -169,9 +166,11 @@ void send_to_MQTT(String topic, JsonDocument data) {
 
   mqtt.publish(topic.c_str(), dataBuffer);
 
-  Serial.println("ESP - sent to MQTT:");
-  Serial.printf("- topic: %s\n", topic.c_str());
-  Serial.printf("- payload: %s\n", dataBuffer);
+  if (VERBOSE) {
+    Serial.println("ESP - sent to MQTT:");
+    Serial.printf("- topic: %s\n", topic.c_str());
+    Serial.printf("- payload: %s\n", dataBuffer);
+  }
 }
 
 void send_type() {
@@ -179,12 +178,6 @@ void send_type() {
   message["module_type"] = MODULE_TYPE;
   message["region_id"] = REGION;
   send_to_MQTT("esp/connect", message);
-}
-
-void send_reading(int value) {
-  JsonDocument message;
-  message["value"] = value;
-  send_to_MQTT("esp/update", message);
 }
 
 String read_MAC_address() {

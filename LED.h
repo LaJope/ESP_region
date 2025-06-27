@@ -1,8 +1,8 @@
 #pragma once
+
 #include "defines.h"
 #include <array>
 
-#ifdef CONSUMER
 #include <cstdint>
 #include <unordered_map>
 
@@ -12,13 +12,13 @@ struct LED {
     uint8_t green = 0;
     uint8_t blue = 0;
   };
-  const std::array<color, 48> working{
-      color{102, 51, 153},  color{129, 64, 141},  color{152, 77, 130},
-      color{172, 91, 117},  color{191, 107, 102}, color{208, 121, 87},
-      color{225, 136, 69},  color{242, 153, 45},  color{255, 166, 0},
-      color{255, 174, 0},   color{255, 179, 0},   color{255, 187, 0},
-      color{255, 191, 0},   color{255, 200, 0},   color{255, 204, 0},
-      color{255, 213, 0},   color{255, 216, 20},  color{253, 215, 48},
+  const std::array<color, 48> day_working{
+      color{25, 25, 112},   color{32, 47, 129},   color{38, 65, 147},
+      color{41, 86, 165},   color{42, 108, 183},  color{41, 129, 201},
+      color{36, 149, 220},  color{25, 171, 239},  color{45, 193, 251},
+      color{117, 193, 226}, color{153, 197, 201}, color{180, 199, 175},
+      color{200, 203, 149}, color{218, 205, 122}, color{233, 209, 92},
+      color{247, 212, 55},  color{255, 216, 20},  color{253, 215, 48},
       color{252, 218, 66},  color{250, 222, 82},  color{248, 223, 96},
       color{246, 225, 109}, color{244, 228, 122}, color{241, 229, 134},
       color{233, 227, 148}, color{218, 222, 164}, color{202, 217, 179},
@@ -29,7 +29,7 @@ struct LED {
       color{4, 4, 131},     color{3, 3, 126},     color{9, 7, 124},
       color{13, 11, 122},   color{18, 14, 120},   color{19, 17, 118},
       color{22, 20, 116},   color{23, 23, 114},   color{25, 25, 112}};
-  const std::array<color, 48> broken{
+  const std::array<color, 48> day_broken{
       color{139, 0, 0},   color{146, 0, 0},   color{153, 0, 0},
       color{160, 0, 3},   color{167, 0, 3},   color{175, 0, 3},
       color{182, 0, 3},   color{189, 0, 3},   color{197, 0, 3},
@@ -48,6 +48,12 @@ struct LED {
       color{225, 29, 55}, color{222, 25, 58}, color{220, 20, 60}};
 
   void setup_pins();
-  void change_color(uint8_t time, bool isOn);
-};
+#ifdef CONSUMER
+  void rotate_color(uint8_t time, bool isOn);
 #endif
+#ifdef PRODUCER
+  void rotate_color(int percentage);
+#endif
+  void output_color(color col);
+  void dim_light(color &col, int factor);
+};
